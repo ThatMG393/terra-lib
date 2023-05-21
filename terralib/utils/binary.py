@@ -1,5 +1,5 @@
 import ctypes
-import string
+import struct
 from typing import Literal
 
 
@@ -11,46 +11,34 @@ class BinaryReader:
         self.pointer = 0
 
     def ReadByte(self) -> int:
-        return self.binary[self.pointer]
+        tmp = self.binary[self.pointer]
+        self.pointer = self.pointer + 1
 
-    def ReadString(self, count: int):
+        return tmp
+
+    def ReadBoolean(self) -> bool:
+        tmp = struct.unpack('?', self.binary[self.pointer:self.pointer + 1])[0]
+        self.pointer = self.pointer + 1
+
+        return tmp
+
+    def ReadString(self, count: int = -1):
+        """
+        Read string from `self.pointer` to `count`
+        Filters out non-printable character
+        
+        :return: a printable string
+        """
+
+        # Assumes that there is a byte that is the length of the string
+        if count == -1:
+            count = self.ReadByte()
+
         str_bytes = self.binary[self.pointer:self.pointer + count]
-
-        tmp = str_bytes.decode('utf-8', 'ignore')
-        dec_str = ""
-
-        i = 0
-        while i < len(tmp):
-            if tmp[i] not in string.printable:
-                i += 1
-                continue
-            if i + 1 < len(tmp) and tmp[i + 1] in string.printable:
-                dec_str += tmp[i]
-                i += 1
-            else:
-                dec_str += tmp[i]
-                break
+        dec_str = str_bytes.decode('utf-8', 'ignore')
 
         self.pointer = self.pointer + len(dec_str)
         return dec_str
-
-    def ReadStringInternal(self) -> str:
-        cur_pos = 0
-        n = 0
-        str_len = 0
-        read_len = 0
-        chars_read = 0
-
-        char_buffer = bytes(128)
-        char_bytes = bytes(len(char_buffer))
-
-        str_len = self._Read7BitEncodedInt()
-        if str_len < 0:
-            return 'h'
-
-        while cur_pos < str_len:
-            read_len = str_len - cur_pos  # TODO: clamp
-            cur_pos = cur_pos + 1
 
     def ReadInt32(self) -> int:
         tmp = int.from_bytes(self.binary[self.pointer:self.pointer + 4], byteorder=self.endian)
@@ -58,7 +46,13 @@ class BinaryReader:
 
         return tmp
 
-    def ReadUInt64(self) -> int:
+    def ReadInt64(self) -> int:
+        tmp = int.from_bytes(self.binary[self.pointer:self.pointer + 8], byteorder=self.endian)
+        self.pointer = self.pointer + 8
+
+        return tmp
+
+    def ReadUInt32(self) -> int:
         tmp = int.from_bytes(self.binary[self.pointer:self.pointer + 4], byteorder=self.endian)
         tmp = ctypes.c_uint64(tmp).value
         self.pointer = self.pointer + 4
@@ -71,20 +65,18 @@ class BinaryReader:
 
         return tmp
 
-    def _Read7BitEncodedInt(self) -> int:
-        count = 0
-        shift = 0
-        byte = 0
+    # Only from .NET
+    def ReadColor(self) -> tuple[int, int, int]:
+        r = self.binary[self.pointer]
+        self.pointer = self.pointer + 1
 
-        while (byte & 0x80) != 0:
-            if shift == 5 * 7:
-                break
+        g = self.binary[self.pointer]
+        self.pointer = self.pointer + 1
 
-            byte = self.ReadByte()
-            count = count | (byte & 0x7F) << shift
-            shift = shift + 7
+        b = self.binary[self.pointer]
+        self.pointer = self.pointer + 1
 
-        return count
+        return r, g, b
 
     def _MovePointer(self, pos: int):
         if pos > len(self.binary):
@@ -93,3 +85,15 @@ class BinaryReader:
             pos = 0
 
         self.pointer = pos
+
+    def _IncrementPointer(self, count: int):
+        if pos > len(self.binary):
+            pos = len(self.binary)
+        elif pos < self.pointer:
+            pos = self.pointer
+
+        self.pointer = count
+
+
+def bit_from_byte(byte: int, bit_index: int) -> int:
+    return (byte >> bit_index) & 1
